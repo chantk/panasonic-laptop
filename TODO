@@ -1,0 +1,29 @@
+TODO
+====
+
+* Enable debug message.
+* Fix ACPI Warning: For \_SB_.CDDI: Insufficient arguments - needs 1, found 0.
+* Fix goto contruct in pcc_hotkey_add().
+* Add support for ECO mode.
+
+
+
+Things to complete before sending a patch:
+
+* please provide Signed-off-by line
+* please don't use the goto construct in pcc_hotkey_add(), since it
+  makes it easy to introduce future bugs while adding more code,
+  just check for the ODD drive presence and put the entire block
+  in an 'if ()  { }' construct.
+* I agree, checking for _SB.FBAY and _SB.STAT is probably the better
+  solution.  I would accept both versions, though.
+* Please run your patch through checkpatch.pl, I think there were some
+  indentation errors in it (just spotted them with my eye, didn't run
+  the script)
+
+> 3) Please advise on the correct way to propagate an error result from
+> the functions that call the ACPI methods {get,set}optd_power_state() to
+> userspace in the sysfs interface.  I couldn't find a straightforward
+> example anywhere.
+
+

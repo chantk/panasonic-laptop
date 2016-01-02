@@ -1,0 +1,121 @@
+What I've done
+==============
+
+* Manually merged panasonic-laptop.patch with kernel version. 
+* Compile a debug kernel.
+* cdpower works (power on/off).
+* Compile and install acpi_call module (hacking/acpi_call)
+
+
+
+Enabling debug mode
+===================
+
+* Compile kernel with CONFIG_DYNAMIC_DEBUG=y
+* Add kernel parameter: addappend = "log_buf_len=16M"
+* Enable debug mode by adding this line:
+  # echo -n 'file ec.c +p' | sudo tee /sys/kernel/debug/dynamic_debug/control
+
+
+
+Dumping contents of EC
+======================
+
+Determine the EC cmd/status & data port:
+> cat /proc/ioports | grep EC
+0062-0062 : EC data
+0066-0066 : EC cmd
+
+Dump contents of the first EC, do:
+# od -t x1 /sys/kernel/debug/ec/ec0/io
+0000000 08 40 00 00 00 41 2e 00 a6 a0 23 a0 23 80 a0 23
+0000020 23 a0 08 08 00 00 00 00 00 00 00 00 00 00 00 00
+0000040 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+*
+0000220 00 00 00 00 00 00 00 00 00 80 00 80 80 80 80 00
+0000240 00 00 00 00 80 80 00 00 a7 26 86 27 80 80 80 32
+0000260 80 80 80 80 80 00 80 80 04 00 20 20 00 00 00 00
+0000300 13 98 01 07 5a 5a 71 81 2e 00 13 98 00 07 5a 5a
+0000320 71 9f 2c 00 00 00 00 00 00 00 00 9f 00 00 00 00
+0000340 00 00 00 00 00 9f 00 00 00 00 00 00 00 00 00 00
+0000360 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+0000400
+
+The EC signals to the kernel via the acpi interrupt and generates GPE 0x1d
+
+
+Set debug_layer and debug_level
+# echo 0x00080010 > /sys/module/acpi/parameters/debug_layer
+# echo 0xa4004606 > /sys/module/acpi/parameters/debug_level
+or better
+# echo 0x00000006 > /sys/module/acpi/parameters/debug_level
+
+To enable debugging, compile and run enable_debug
+> make enable_debug ; ./enable_debug
+
+
+
+CDROM power dev file:
+/sys/devices/platform/panasonic/cdpower
+
+CDROM on
+\_SB_.PCI0.LPCB.EC0_._Q84 [1A]
+\_GPE._L0D
+\_SB_.PCI0.LPCB.EC0_._QA6
+
+CDROM off
+\_SB_.PCI0.LPCB.EC0_._Q84
+
+CDROM eject  \_SB_.PCI0.LPCB.EC0_._QA5 [1A]
+
+
+
+
+
+To insert DSDT into ACPI emulator
+=================================
+> acpiexec dsdt.aml
+
+- execute 
+
+
+To list acpi kernel function calls
+==================================
+> cat /proc/kallsyms | grep acpi
+
+
+To test acpi_calls
+==================
+# cd acpi_call
+# make ; make modules
+# modprobe acpi_call
+
+e.g. to turn on/off DVDROM power
+# echo "\_SB_.CDON" > /proc/acpi/call
+# echo "\_SB_.CDDR" > /proc/acpi/call
+# echo "\_SB_.CDDI" > /proc/acpi/call
+
+
+
+\_SB_.ECWR Controls power switch LED
+0x1 0x0  -> off
+0x1 0x1  -> on
+0x1 0x2  -> on
+0x1 0x3  -> flash as suspend
+0x1 0x4  -> off
+
+Results of \_SB_.ECPF
+
+\_SB_.ECPF 0x0100 0 0  -> EC01	              Unknown
+
+\_SB_.ECPF 0x0101 0 0  -> EC02 Arg1          Unknown
+  
+\_SB_.ECPF 0x0110 0 0  -> EC03 Arg1 Arg2
+
+\_SB_
+
+
+\_SB_.ECPF 0x0216
+
+  -> EC8B
+  Prepare to sleep related
