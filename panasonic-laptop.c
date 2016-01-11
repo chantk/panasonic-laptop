@@ -808,7 +808,7 @@ static int acpi_pcc_hotkey_remove(struct acpi_device *device)
 		platform_device_unregister(pcc->platform);
 	}
 
-	Sysfs_remove_group(&device->dev.kobj, &pcc_attr_group);
+	sysfs_remove_group(&device->dev.kobj, &pcc_attr_group);
 
 	backlight_device_unregister(pcc->backlight);
 
