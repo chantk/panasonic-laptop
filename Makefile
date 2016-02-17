@@ -42,20 +42,21 @@ unload:
 
 install: modules
 	@( [ `id -u` == 0 ] || { echo "Must be root to install modules"; exit 1; } )
-	rm -f $(MOD_DIR)/$(TP_DIR)/panasonic-laptop.ko
+	rm -f $(MOD_DIR)/$(PCC_DIR)/panasonic-laptop.ko
 	rm -f $(MOD_DIR)/drivers/firmware/panasonic-laptop.ko
 	rm -f $(MOD_DIR)/extra/panasonic-laptop.ko
-	$(MAKE) -C $(KBUILD) M=$(PWD) O=$(KBUILD) modules_install
+	#$(MAKE) -C $(KBUILD) M=$(PWD) O=$(KBUILD) modules_install
+	install -m 0644 $(PWD)/panasonic-laptop.ko $(MOD_DIR)/$(PCC_DIR)
 	depmod -a
 
 
 #####################################################################
 # Generate a stand-alone kernel patch
 
-# TP_VER := ${shell sed -ne 's/^\#define TP_VERSION \"\(.*\)\"/\1/gp' tp_smapi.c}
+# PCC_VER := ${shell sed -ne 's/^\#define PCC_VERSION \"\(.*\)\"/\1/gp' tp_smapi.c}
 # ORG    := a
 # NEW    := b
-# PATCH  := tp_smapi-$(TP_VER)-for-$(KVER).patch
+# PATCH  := tp_smapi-$(PCC_VER)-for-$(KVER).patch
 #
 #BASE_IN_PATCH  := 1
 #
@@ -63,18 +64,18 @@ install: modules
 #	@TMPDIR=`mktemp -d /tmp/tp_smapi-patch.XXXXXX` &&\
 #	echo "Working directory: $$TMPDIR" &&\
 #	cd $$TMPDIR &&\
-#	mkdir -p $(ORG)/$(TP_DIR) &&\
+#	mkdir -p $(ORG)/$(PCC_DIR) &&\
 #	mkdir -p $(ORG)/$(IDIR) &&\
 #	mkdir -p $(ORG)/drivers/hwmon &&\
-#	cp $(KSRC)/$(TP_DIR)/{Kconfig,Makefile} $(ORG)/$(TP_DIR) &&\
+#	cp $(KSRC)/$(PCC_DIR)/{Kconfig,Makefile} $(ORG)/$(PCC_DIR) &&\
 #	cp $(KSRC)/drivers/hwmon/{Kconfig,hdaps.c} $(ORG)/drivers/hwmon/ &&\
 #	cp -r $(ORG) $(NEW) &&\
 #	\
 #	if [ "$(BASE_IN_PATCH)" == 1 ]; then \
-#		cp $(PWD)/panasonic-laptop.c $(NEW)/$(TP_DIR)/panasonic-laptop.c &&\
+#		cp $(PWD)/panasonic-laptop.c $(NEW)/$(PCC_DIR)/panasonic-laptop.c &&\
 #		cp $(PWD)/panasonic-laptop.h $(NEW)/$(IDIR)/panasonic-laptop.h &&\
-#		perl -i -pe 'print `cat $(PWD)/diff/Kconfig-panasonic-laptop.add` if m/^(endmenu|endif # MISC_DEVICES)$$/' $(NEW)/$(TP_DIR)/Kconfig &&\
-#		sed -i -e '$$aobj-$$(CONFIG_THINKPAD_EC)       += panasonic-laptop.o' $(NEW)/$(TP_DIR)/Makefile \
+#		perl -i -pe 'print `cat $(PWD)/diff/Kconfig-panasonic-laptop.add` if m/^(endmenu|endif # MISC_DEVICES)$$/' $(NEW)/$(PCC_DIR)/Kconfig &&\
+#		sed -i -e '$$aobj-$$(CONFIG_THINKPAD_EC)       += panasonic-laptop.o' $(NEW)/$(PCC_DIR)/Makefile \
 #	; fi &&\
 #	\
 #	if [ "$(HDAPS_IN_PATCH)" == 1 ]; then \
@@ -83,9 +84,9 @@ install: modules
 #	; fi &&\
 #	\
 #	if [ "$(SMAPI_IN_PATCH)" == 1 ]; then \
-#		sed -i -e '$$aobj-$$(CONFIG_TP_SMAPI)          += tp_smapi.o' $(NEW)/$(TP_DIR)/Makefile &&\
-#		perl -i -pe 'print `cat $(PWD)/diff/Kconfig-tp_smapi.add` if m/^(endmenu|endif # MISC_DEVICES)$$/' $(NEW)/$(TP_DIR)/Kconfig &&\
-#		cp $(PWD)/tp_smapi.c $(NEW)/$(TP_DIR)/tp_smapi.c &&\
+#		sed -i -e '$$aobj-$$(CONFIG_TP_SMAPI)          += tp_smapi.o' $(NEW)/$(PCC_DIR)/Makefile &&\
+#		perl -i -pe 'print `cat $(PWD)/diff/Kconfig-tp_smapi.add` if m/^(endmenu|endif # MISC_DEVICES)$$/' $(NEW)/$(PCC_DIR)/Kconfig &&\
+#		cp $(PWD)/tp_smapi.c $(NEW)/$(PCC_DIR)/tp_smapi.c &&\
 #		mkdir -p $(NEW)/Documentation &&\
 #		perl -0777 -pe 's/\n(Installation\n---+|Conflict with HDAPS\n---+|Files in this package\n---+|Setting and getting CD-ROM speed:\n).*?\n(?=[^\n]*\n-----)/\n/gs' $(PWD)/README > $(NEW)/Documentation/tp_smapi.txt \
 #	; fi &&\
@@ -105,7 +106,7 @@ install: modules
 #
 #set-version:
 #	perl -i -pe 's/^(tp_smapi version ).*/$${1}$(VER)/' README
-#	perl -i -pe 's/^(#define TP_VERSION ").*/$${1}$(VER)"/' panasonic-laptop.c tp_smapi.c
+#	perl -i -pe 's/^(#define PCC_VERSION ").*/$${1}$(VER)"/' panasonic-laptop.c tp_smapi.c
 #
 #TGZ=../tp_smapi-$(VER).tgz
 #create-tgz:

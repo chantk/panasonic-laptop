@@ -119,3 +119,8 @@ Results of \_SB_.ECPF
 
   -> EC8B
   Prepare to sleep related
+
+
+
+In the DSDT, SINF contains 15 entries. They correspond to the SINF_BITS array. The current panasonic-laptop module implements 0x0 - 0xb. What 0xb - 0x14 do are unknown.
+
