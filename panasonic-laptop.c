@@ -24,6 +24,9 @@
  *---------------------------------------------------------------------------
  *
  * ChangeLog:
+ * 	Feb.18, 2016	Kenneth Chan <kenneth.t.chan@gmail.com>
+ * 		-v0.96	add set mute interface
+ *
  *	Sep.23, 2008	Harald Welte <laforge@gnumonks.org>
  *		-v0.95	rename driver from drivers/acpi/pcc_acpi.c to
  *			drivers/misc/panasonic-laptop.c
@@ -239,8 +242,12 @@ struct pcc_acpi {
 	acpi_handle		handle;
 	unsigned long		num_sifr;
 	int			sticky_mode;
+<<<<<<< HEAD
 	int			prog0c;
 	int			prog0d;
+=======
+	int			mute;
+>>>>>>> master
 	u32			*sinf;
 	struct acpi_device	*device;
 	struct input_dev	*input_dev;
@@ -508,6 +515,22 @@ static ssize_t show_mute(struct device *dev, struct device_attribute *attr,
 		return -EIO;
 
 	return snprintf(buf, PAGE_SIZE, "%u\n", pcc->sinf[SINF_MUTE]);
+}
+
+static ssize_t set_mute(struct device *dev, struct device_attribute *attr,
+			  const char *buf, size_t count)
+{
+	struct acpi_device *acpi = to_acpi_device(dev);
+	struct pcc_acpi *pcc = acpi_driver_data(acpi);
+	int val;
+
+	if (count && sscanf(buf, "%i", &val) == 1 &&
+	    (val == 0 || val == 1)) {
+		acpi_pcc_write_sset(pcc, SINF_MUTE, val);
+		pcc->mute = val;
+	}
+
+	return count;
 }
 
 static ssize_t show_sticky(struct device *dev, struct device_attribute *attr,
@@ -810,7 +833,7 @@ static ssize_t set_prog14(struct device *dev, struct device_attribute *attr,
 
 static DEVICE_ATTR(numbatt, S_IRUGO, show_numbatt, NULL);
 static DEVICE_ATTR(lcdtype, S_IRUGO, show_lcdtype, NULL);
-static DEVICE_ATTR(mute, S_IRUGO, show_mute, NULL);
+static DEVICE_ATTR(mute, S_IRUGO | S_IWUSR, show_mute, set_mute);
 static DEVICE_ATTR(sticky_key, S_IRUGO | S_IWUSR, show_sticky, set_sticky);
 static DEVICE_ATTR(cdpower, S_IRUGO | S_IWUSR, show_cdpower, set_cdpower);
 static DEVICE_ATTR(reserved, S_IRUGO | S_IWUSR, show_reserved, set_reserved);
@@ -956,8 +979,12 @@ static int acpi_pcc_hotkey_resume(struct device *dev)
 	ACPI_DEBUG_PRINT((ACPI_DB_ERROR, "Sticky mode restore: %d\n",
 			  pcc->sticky_mode));
 
+<<<<<<< HEAD
 	acpi_pcc_write_sset(pcc, SINF_PROG0C, pcc->prog0c);
 	acpi_pcc_write_sset(pcc, SINF_PROG0D, pcc->prog0d);
+=======
+	acpi_pcc_write_sset(pcc, SINF_MUTE, pcc->mute);
+>>>>>>> master
 	return acpi_pcc_write_sset(pcc, SINF_STICKY_KEY, pcc->sticky_mode);
 }
 #endif
@@ -1027,6 +1054,7 @@ static int acpi_pcc_hotkey_add(struct acpi_device *device)
 
 	/* read the initial sticky key mode from the hardware */
 	pcc->sticky_mode = pcc->sinf[SINF_STICKY_KEY];
+	pcc->mute = pcc->sinf[SINF_MUTE];
 
 	/* read the initial values of our progxx */
 	pcc->prog0c = pcc->sinf[SINF_PROG0C];
