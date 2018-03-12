@@ -145,7 +145,7 @@
 
 #define _COMPONENT		ACPI_HOTKEY_COMPONENT
 
-MODULE_AUTHOR("Hiroshi Miura, David Bronaugh and Harald Welte");
+MODULE_AUTHOR("Hiroshi Miura, David Bronaugh, Harald Welte, Martin Lucina and Kenneth Chan");
 MODULE_DESCRIPTION("ACPI HotKey driver for Panasonic Let's Note laptops");
 MODULE_LICENSE("GPL");
 
