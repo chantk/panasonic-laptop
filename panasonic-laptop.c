@@ -237,7 +237,7 @@ struct pcc_acpi {
 	struct acpi_device	*device;
 	struct input_dev	*input_dev;
 	struct backlight_device	*backlight;
-	struct platform_device  *platform;
+	struct platform_device	*platform;
 };
 
 /* method access functions */
@@ -436,9 +436,9 @@ static int set_optd_power_state(int new_state)
 
 	switch (new_state) {
 	case 0: /* power off */
-	        // Call CDDR instead, since CDDI takes 1 arg and we're not
-	        // sure what it is.
-		status = acpi_evaluate_object(NULL, "\\_SB.CDDR", NULL, NULL);
+		// Call CDDR instead, since they both call the same method
+	        // while CDDI takes 1 arg and we are not quite sure what it is.
+		status = acpi_evaluate_object(NULL, "\\_SB.CDDR", NULL, NULL); 
 		if (ACPI_FAILURE(status)) {
 			ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
 					  "evaluation error _SB.CDDR\n"));
@@ -465,7 +465,7 @@ out:
 
 /* sysfs user interface functions */
 
-static ssize_t show_numbatt(struct device *dev, struct device_attribute *attr,
+static ssize_t numbatt_show(struct device *dev, struct device_attribute *attr,
 			    char *buf)
 {
 	struct acpi_device *acpi = to_acpi_device(dev);
@@ -477,7 +477,7 @@ static ssize_t show_numbatt(struct device *dev, struct device_attribute *attr,
 	return snprintf(buf, PAGE_SIZE, "%u\n", pcc->sinf[SINF_NUM_BATTERIES]);
 }
 
-static ssize_t show_lcdtype(struct device *dev, struct device_attribute *attr,
+static ssize_t lcdtype_show(struct device *dev, struct device_attribute *attr,
 			    char *buf)
 {
 	struct acpi_device *acpi = to_acpi_device(dev);
@@ -489,7 +489,7 @@ static ssize_t show_lcdtype(struct device *dev, struct device_attribute *attr,
 	return snprintf(buf, PAGE_SIZE, "%u\n", pcc->sinf[SINF_LCD_TYPE]);
 }
 
-static ssize_t show_mute(struct device *dev, struct device_attribute *attr,
+static ssize_t mute_show(struct device *dev, struct device_attribute *attr,
 			 char *buf)
 {
 	struct acpi_device *acpi = to_acpi_device(dev);
@@ -501,15 +501,17 @@ static ssize_t show_mute(struct device *dev, struct device_attribute *attr,
 	return snprintf(buf, PAGE_SIZE, "%u\n", pcc->sinf[SINF_MUTE]);
 }
 
-static ssize_t set_mute(struct device *dev, struct device_attribute *attr,
+static ssize_t mute_store(struct device *dev, struct device_attribute *attr,
 			  const char *buf, size_t count)
 {
 	struct acpi_device *acpi = to_acpi_device(dev);
 	struct pcc_acpi *pcc = acpi_driver_data(acpi);
-	int val;
+	int err, val;
 
-	if (count && sscanf(buf, "%i", &val) == 1 &&
-	    (val == 0 || val == 1)) {
+	err = kstrtoint(buf, 0, &val);
+	if (err)
+		return err;
+	if (val == 0 || val == 1) {
 		acpi_pcc_write_sset(pcc, SINF_MUTE, val);
 		pcc->mute = val;
 	}
@@ -517,8 +519,8 @@ static ssize_t set_mute(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
-static ssize_t show_sticky(struct device *dev, struct device_attribute *attr,
-			   char *buf)
+static ssize_t sticky_mode_show(struct device *dev, struct device_attribute *attr,
+				char *buf)
 {
 	struct acpi_device *acpi = to_acpi_device(dev);
 	struct pcc_acpi *pcc = acpi_driver_data(acpi);
@@ -529,15 +531,17 @@ static ssize_t show_sticky(struct device *dev, struct device_attribute *attr,
 	return snprintf(buf, PAGE_SIZE, "%u\n", pcc->sinf[SINF_STICKY_KEY]);
 }
 
-static ssize_t set_sticky(struct device *dev, struct device_attribute *attr,
+static ssize_t sticky_mode_store(struct device *dev, struct device_attribute *attr,
 			  const char *buf, size_t count)
 {
 	struct acpi_device *acpi = to_acpi_device(dev);
 	struct pcc_acpi *pcc = acpi_driver_data(acpi);
-	int val;
+	int err, val;
 
-	if (count && sscanf(buf, "%i", &val) == 1 &&
-	    (val == 0 || val == 1)) {
+	err = kstrtoint(buf, 0, &val);
+	if (err)
+		return err;
+	if (val == 0 || val == 1) {
 		acpi_pcc_write_sset(pcc, SINF_STICKY_KEY, val);
 		pcc->sticky_mode = val;
 	}
@@ -545,35 +549,36 @@ static ssize_t set_sticky(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
-static ssize_t show_cdpower(struct device *dev, struct device_attribute *attr,
+static ssize_t cdpower_show(struct device *dev, struct device_attribute *attr,
 			    char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%d\n", get_optd_power_state());
 }
 
-static ssize_t set_cdpower(struct device *dev, struct device_attribute *attr,
+static ssize_t cdpower_store(struct device *dev, struct device_attribute *attr,
 			   const char *buf, size_t count)
 {
-	int value;
+        int err, val;
 
-	if (count) {
-		value = simple_strtoul(buf, NULL, 10);
-		set_optd_power_state(value);
-	}
+	err = kstrtoint(buf, 10, &val);
+	if (err)
+		return err;
+	set_optd_power_state(val);
 	return count;
 }
 
-static DEVICE_ATTR(numbatt, S_IRUGO, show_numbatt, NULL);
-static DEVICE_ATTR(lcdtype, S_IRUGO, show_lcdtype, NULL);
-static DEVICE_ATTR(mute, S_IRUGO | S_IWUSR, show_mute, set_mute);
-static DEVICE_ATTR(sticky_key, S_IRUGO | S_IWUSR, show_sticky, set_sticky);
-static DEVICE_ATTR(cdpower, S_IRUGO | S_IWUSR, show_cdpower, set_cdpower);
+static DEVICE_ATTR_RO(numbatt);
+static DEVICE_ATTR_RO(lcdtype);
+static DEVICE_ATTR_RW(mute);
+static DEVICE_ATTR_RW(sticky_mode);
+static DEVICE_ATTR_RW(cdpower);
 
 static struct attribute *pcc_sysfs_entries[] = {
 	&dev_attr_numbatt.attr,
 	&dev_attr_lcdtype.attr,
 	&dev_attr_mute.attr,
-	&dev_attr_sticky_key.attr,
+	&dev_attr_sticky_mode.attr,
+	&dev_attr_cdpower.attr,
 	NULL,
 };
 
@@ -645,14 +650,14 @@ static int pcc_register_optd_notifier(struct pcc_acpi *pcc, char *node)
 	status = acpi_get_handle(NULL, node, &handle);
 
 	if (ACPI_SUCCESS(status)) {
-	  status = acpi_install_notify_handler(handle,
-					       ACPI_SYSTEM_NOTIFY,
-					       pcc_optd_notify, pcc);
-	  if (ACPI_FAILURE(status))
-	    pr_err("Failed to register notify on %s\n", node);
-	} else
-	  return -ENODEV;
-	
+		status = acpi_install_notify_handler(handle, 
+				ACPI_SYSTEM_NOTIFY, 
+				pcc_optd_notify, pcc);
+		if (ACPI_FAILURE(status)) 
+			pr_err("Failed to register notify on %s\n", node);
+	} else 
+		return -ENODEV; 
+
 	return 0;
 }
 
