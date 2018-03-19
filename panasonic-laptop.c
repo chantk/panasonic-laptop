@@ -614,10 +614,12 @@ static void acpi_pcc_generate_keyinput(struct pcc_acpi *pcc)
 					result & 0xf, 0x80, false);
 	}
 
-	if (!sparse_keymap_report_event(hotk_input_dev,
-					result & 0xf, result & 0x80, false))
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				  "Unknown hotkey event: %d\n", result));
+	if ((result & 0xf) == 0x7 || (result & 0xf) == 0x9 || (result & 0xf) == 0xa) {
+ 	        if (!sparse_keymap_report_event(hotk_input_dev,
+						result & 0xf, result & 0x80, false))
+		        ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
+					  "Unknown hotkey event: %d\n", result));
+	}
 }
 
 static void acpi_pcc_hotkey_notify(struct acpi_device *device, u32 event)
