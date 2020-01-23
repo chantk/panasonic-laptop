@@ -24,6 +24,15 @@
  *---------------------------------------------------------------------------
  *
  * ChangeLog:
+ *      Mar 12, 2018    Kenneth Chan <kenneth.t.chan@gmail.com>
+ *              -v0.97  add support for cdpower switch
+ *                      call CDDR instead of CDDI when switching off optical
+ *                      drive to avoid a wrong arg error
+ *                      add write support to mute
+ *
+ *	Jan.13, 2009    Martin Lucina <mato@kotelna.sk>
+ *		-v0.96  add support for optical drive power in Y and W series
+ *
  *	Sep.23, 2008	Harald Welte <laforge@gnumonks.org>
  *		-v0.95	rename driver from drivers/acpi/pcc_acpi.c to
  *			drivers/misc/panasonic-laptop.c
@@ -116,9 +125,6 @@
  *
  */
 
-
-
-
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
@@ -128,12 +134,10 @@
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
 #include <linux/slab.h>
-#include <acpi/acpi_bus.h>
-#include <acpi/acpi_drivers.h>
+#include <linux/acpi.h>
 #include <linux/input.h>
 #include <linux/input/sparse-keymap.h>
 #include <linux/platform_device.h>
-
 
 #ifndef ACPI_HOTKEY_COMPONENT
 #define ACPI_HOTKEY_COMPONENT	0x10000000
@@ -141,7 +145,7 @@
 
 #define _COMPONENT		ACPI_HOTKEY_COMPONENT
 
-MODULE_AUTHOR("Hiroshi Miura, David Bronaugh and Harald Welte");
+MODULE_AUTHOR("Hiroshi Miura, David Bronaugh, Harald Welte, Martin Lucina and Kenneth Chan");
 MODULE_DESCRIPTION("ACPI HotKey driver for Panasonic Let's Note laptops");
 MODULE_LICENSE("GPL");
 
@@ -154,6 +158,8 @@ MODULE_LICENSE("GPL");
 #define METHOD_HKEY_SINF	"SINF"
 #define METHOD_HKEY_SSET	"SSET"
 #define HKEY_NOTIFY		 0x80
+#define ECO_OFF			 0x03
+#define ECO_ON			 0x83
 
 #define ACPI_PCC_DRIVER_NAME	"Panasonic Laptop Support"
 #define ACPI_PCC_DEVICE_NAME	"Hotkey"
@@ -162,7 +168,7 @@ MODULE_LICENSE("GPL");
 #define ACPI_PCC_INPUT_PHYS	"panasonic/hkey0"
 
 /* LCD_TYPEs: 0 = Normal, 1 = Semi-transparent
-   ENV_STATEs: Normal temp=0x01, High temp=0x81, N/A=0x00
+   ECO_STATEs: 0x03 = off, 0x83 = on
 */
 enum SINF_BITS { SINF_NUM_BATTERIES = 0,
 		 SINF_LCD_TYPE,
@@ -174,7 +180,7 @@ enum SINF_BITS { SINF_NUM_BATTERIES = 0,
 		 SINF_DC_CUR_BRIGHT,
 		 SINF_MUTE,
 		 SINF_RESERVED,
-		 SINF_ENV_STATE,
+		 SINF_ECO_STATE,
 		 SINF_STICKY_KEY = 0x80,
 	};
 /* R1 handles SINF_AC_CUR_BRIGHT as SINF_CUR_BRIGHT, doesn't know AC state */
@@ -188,7 +194,6 @@ static const struct acpi_device_id pcc_device_ids[] = {
 	{ "MAT0013", 0},
 	{ "MAT0018", 0},
 	{ "MAT0019", 0},
-	{ "MAT0020", 0},
 	{ "", 0},
 };
 MODULE_DEVICE_TABLE(acpi, pcc_device_ids);
@@ -229,15 +234,13 @@ struct pcc_acpi {
 	acpi_handle		handle;
 	unsigned long		num_sifr;
 	int			sticky_mode;
+	u32			eco_state;
+	int			mute;
 	u32			*sinf;
 	struct acpi_device	*device;
 	struct input_dev	*input_dev;
 	struct backlight_device	*backlight;
-	struct platform_device  *platform;
-};
-
-struct pcc_keyinput {
-	struct acpi_hotkey      *hotkey;
+	struct platform_device	*platform;
 };
 
 /* method access functions */
@@ -436,10 +439,12 @@ static int set_optd_power_state(int new_state)
 
 	switch (new_state) {
 	case 0: /* power off */
-		status = acpi_evaluate_object(NULL, "\\_SB.CDDI", NULL, NULL);
+		// Call CDDR instead, since they both call the same method
+	        // while CDDI takes 1 arg and we are not quite sure what it is.
+		status = acpi_evaluate_object(NULL, "\\_SB.CDDR", NULL, NULL); 
 		if (ACPI_FAILURE(status)) {
 			ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-					  "evaluation error _SB.CDDI\n"));
+					  "evaluation error _SB.CDDR\n"));
 			result = -EIO;
 		}
 		break;
@@ -460,9 +465,10 @@ out:
 	return result;
 }
 
+
 /* sysfs user interface functions */
 
-static ssize_t show_numbatt(struct device *dev, struct device_attribute *attr,
+static ssize_t numbatt_show(struct device *dev, struct device_attribute *attr,
 			    char *buf)
 {
 	struct acpi_device *acpi = to_acpi_device(dev);
@@ -474,7 +480,7 @@ static ssize_t show_numbatt(struct device *dev, struct device_attribute *attr,
 	return snprintf(buf, PAGE_SIZE, "%u\n", pcc->sinf[SINF_NUM_BATTERIES]);
 }
 
-static ssize_t show_lcdtype(struct device *dev, struct device_attribute *attr,
+static ssize_t lcdtype_show(struct device *dev, struct device_attribute *attr,
 			    char *buf)
 {
 	struct acpi_device *acpi = to_acpi_device(dev);
@@ -486,7 +492,7 @@ static ssize_t show_lcdtype(struct device *dev, struct device_attribute *attr,
 	return snprintf(buf, PAGE_SIZE, "%u\n", pcc->sinf[SINF_LCD_TYPE]);
 }
 
-static ssize_t show_mute(struct device *dev, struct device_attribute *attr,
+static ssize_t mute_show(struct device *dev, struct device_attribute *attr,
 			 char *buf)
 {
 	struct acpi_device *acpi = to_acpi_device(dev);
@@ -498,8 +504,26 @@ static ssize_t show_mute(struct device *dev, struct device_attribute *attr,
 	return snprintf(buf, PAGE_SIZE, "%u\n", pcc->sinf[SINF_MUTE]);
 }
 
-static ssize_t show_sticky(struct device *dev, struct device_attribute *attr,
-			   char *buf)
+static ssize_t mute_store(struct device *dev, struct device_attribute *attr,
+			  const char *buf, size_t count)
+{
+	struct acpi_device *acpi = to_acpi_device(dev);
+	struct pcc_acpi *pcc = acpi_driver_data(acpi);
+	int err, val;
+
+	err = kstrtoint(buf, 0, &val);
+	if (err)
+		return err;
+	if (val == 0 || val == 1) {
+		acpi_pcc_write_sset(pcc, SINF_MUTE, val);
+		pcc->mute = val;
+	}
+
+	return count;
+}
+
+static ssize_t sticky_mode_show(struct device *dev, struct device_attribute *attr,
+				char *buf)
 {
 	struct acpi_device *acpi = to_acpi_device(dev);
 	struct pcc_acpi *pcc = acpi_driver_data(acpi);
@@ -510,15 +534,17 @@ static ssize_t show_sticky(struct device *dev, struct device_attribute *attr,
 	return snprintf(buf, PAGE_SIZE, "%u\n", pcc->sinf[SINF_STICKY_KEY]);
 }
 
-static ssize_t set_sticky(struct device *dev, struct device_attribute *attr,
+static ssize_t sticky_mode_store(struct device *dev, struct device_attribute *attr,
 			  const char *buf, size_t count)
 {
 	struct acpi_device *acpi = to_acpi_device(dev);
 	struct pcc_acpi *pcc = acpi_driver_data(acpi);
-	int val;
+	int err, val;
 
-	if (count && sscanf(buf, "%i", &val) == 1 &&
-	    (val == 0 || val == 1)) {
+	err = kstrtoint(buf, 0, &val);
+	if (err)
+		return err;
+	if (val == 0 || val == 1) {
 		acpi_pcc_write_sset(pcc, SINF_STICKY_KEY, val);
 		pcc->sticky_mode = val;
 	}
@@ -526,39 +552,102 @@ static ssize_t set_sticky(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
-static ssize_t show_cdpower(struct device *dev, struct device_attribute *attr,
+static ssize_t eco_state_show(struct device *dev, struct device_attribute *attr,
+				char *buf)
+{
+	struct acpi_device *acpi = to_acpi_device(dev);
+	struct pcc_acpi *pcc = acpi_driver_data(acpi);
+	int result;
+
+	if (!acpi_pcc_retrieve_biosdata(pcc))
+		return -EIO;
+
+	printk("ECO_STATE_SHOW result = %u\n", pcc->eco_state);
+	switch (pcc->eco_state) {
+		case ECO_OFF:
+			result = 0;
+			printk("case ECO_OFF\n");
+			break;
+		case ECO_ON:
+			result = 1;
+			printk("case ECO_ON\n");
+			break;
+		default:
+			result = -EIO;
+			printk("case default\n");
+			break;
+	}
+	return snprintf(buf, PAGE_SIZE, "%u\n", result);
+}
+
+static ssize_t eco_state_store(struct device *dev, struct device_attribute *attr,
+			  const char *buf, size_t count)
+{
+	struct acpi_device *acpi = to_acpi_device(dev);
+	struct pcc_acpi *pcc = acpi_driver_data(acpi);
+	int err, rc, state;
+
+	err = kstrtoint(buf, 0, &state);
+	if (err)
+		return err;
+	printk("ECO_STATE_STORE state = %u\t", state);
+	switch (state) {
+	case 0:	
+		rc = acpi_pcc_write_sset(pcc, SINF_ECO_STATE, ECO_OFF);
+		pcc->eco_state = ECO_OFF;
+		printk("ECO_STATE_STORE case 0, %u\nrc = %u\n", ECO_ON, rc);
+		break;
+	case 1:
+		rc = acpi_pcc_write_sset(pcc, SINF_ECO_STATE, ECO_ON);
+		pcc->eco_state = ECO_ON;
+		printk("ECO_STATE_STORE case 1, %u\nrc = %u\n", ECO_ON, rc);
+		break;
+	default:
+		/* nothing to do */
+		rc = -EIO;
+		printk("ECO_STATE_STORE case default, %u\n", rc);
+		break;
+	}
+
+	return count;
+}
+
+static ssize_t cdpower_show(struct device *dev, struct device_attribute *attr,
 			    char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%d\n", get_optd_power_state());
 }
 
-static ssize_t set_cdpower(struct device *dev, struct device_attribute *attr,
+static ssize_t cdpower_store(struct device *dev, struct device_attribute *attr,
 			   const char *buf, size_t count)
 {
-	int value;
+        int err, val;
 
-	if (count) {
-		value = simple_strtoul(buf, NULL, 10);
-		set_optd_power_state(value);
-	}
+	err = kstrtoint(buf, 10, &val);
+	if (err)
+		return err;
+	set_optd_power_state(val);
 	return count;
 }
 
-static DEVICE_ATTR(numbatt, S_IRUGO, show_numbatt, NULL);
-static DEVICE_ATTR(lcdtype, S_IRUGO, show_lcdtype, NULL);
-static DEVICE_ATTR(mute, S_IRUGO, show_mute, NULL);
-static DEVICE_ATTR(sticky_key, S_IRUGO | S_IWUSR, show_sticky, set_sticky);
-static DEVICE_ATTR(cdpower, S_IRUGO | S_IWUSR, show_cdpower, set_cdpower);
+static DEVICE_ATTR_RO(numbatt);
+static DEVICE_ATTR_RO(lcdtype);
+static DEVICE_ATTR_RW(mute);
+static DEVICE_ATTR_RW(sticky_mode);
+static DEVICE_ATTR_RW(eco_state);
+static DEVICE_ATTR_RW(cdpower);
 
 static struct attribute *pcc_sysfs_entries[] = {
 	&dev_attr_numbatt.attr,
 	&dev_attr_lcdtype.attr,
 	&dev_attr_mute.attr,
-	&dev_attr_sticky_key.attr,
+	&dev_attr_sticky_mode.attr,
+	&dev_attr_eco_state.attr,
+	&dev_attr_cdpower.attr,
 	NULL,
 };
 
-static struct attribute_group pcc_attr_group = {
+static const struct attribute_group pcc_attr_group = {
 	.name	= NULL,		/* put in device directory */
 	.attrs	= pcc_sysfs_entries,
 };
@@ -566,6 +655,7 @@ static struct attribute_group pcc_attr_group = {
 
 /* hotkey input device driver */
 
+static int sleep_keydown_seen;
 static void acpi_pcc_generate_keyinput(struct pcc_acpi *pcc)
 {
 	struct input_dev *hotk_input_dev = pcc->input_dev;
@@ -574,18 +664,27 @@ static void acpi_pcc_generate_keyinput(struct pcc_acpi *pcc)
 
 	rc = acpi_evaluate_integer(pcc->handle, METHOD_HKEY_QUERY,
 				   NULL, &result);
-	if (!ACPI_SUCCESS(rc)) {
+	if (ACPI_FAILURE(rc)) {
 		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
 				 "error getting hotkey status\n"));
 		return;
 	}
 
-	acpi_bus_generate_proc_event(pcc->device, HKEY_NOTIFY, result);
+	/* hack: some firmware sends no key down for sleep / hibernate */
+	if ((result & 0xf) == 0x7 || (result & 0xf) == 0xa) {
+		if (result & 0x80)
+			sleep_keydown_seen = 1;
+		if (!sleep_keydown_seen)
+			sparse_keymap_report_event(hotk_input_dev,
+					result & 0xf, 0x80, false);
+	}
 
-	if (!sparse_keymap_report_event(hotk_input_dev,
-					result & 0xf, result & 0x80, false))
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				  "Unknown hotkey event: %d\n", result));
+	if ((result & 0xf) == 0x7 || (result & 0xf) == 0x9 || (result & 0xf) == 0xa) {
+ 	        if (!sparse_keymap_report_event(hotk_input_dev,
+						result & 0xf, result & 0x80, false))
+		        ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
+					  "Unknown hotkey event: %d\n", result));
+	}
 }
 
 static void acpi_pcc_hotkey_notify(struct acpi_device *device, u32 event)
@@ -602,17 +701,58 @@ static void acpi_pcc_hotkey_notify(struct acpi_device *device, u32 event)
 	}
 }
 
+static void pcc_optd_notify(acpi_handle handle, u32 event, void *data)
+{
+	if (event != ACPI_NOTIFY_EJECT_REQUEST)
+		return;
+
+	set_optd_power_state(0);
+}
+
+static int pcc_register_optd_notifier(struct pcc_acpi *pcc, char *node)
+{
+	acpi_status status;
+	acpi_handle handle;
+
+	status = acpi_get_handle(NULL, node, &handle);
+
+	if (ACPI_SUCCESS(status)) {
+		status = acpi_install_notify_handler(handle, 
+				ACPI_SYSTEM_NOTIFY, 
+				pcc_optd_notify, pcc);
+		if (ACPI_FAILURE(status)) 
+			pr_err("Failed to register notify on %s\n", node);
+	} else 
+		return -ENODEV; 
+
+	return 0;
+}
+
+static void pcc_unregister_optd_notifier(struct pcc_acpi *pcc, char *node)
+{
+	acpi_status status = AE_OK;
+	acpi_handle handle;
+
+	status = acpi_get_handle(NULL, node, &handle);
+
+	if (ACPI_SUCCESS(status)) {
+		status = acpi_remove_notify_handler(handle,
+				ACPI_SYSTEM_NOTIFY,
+				pcc_optd_notify);
+		if (ACPI_FAILURE(status))
+			pr_err("Error removing optd notify handler %s\n",
+					node);
+	}
+}
+
 static int acpi_pcc_init_input(struct pcc_acpi *pcc)
 {
 	struct input_dev *input_dev;
 	int error;
 
 	input_dev = input_allocate_device();
-	if (!input_dev) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				  "Couldn't allocate input device for hotkey"));
+	if (!input_dev)
 		return -ENOMEM;
-	}
 
 	input_dev->name = ACPI_PCC_DRIVER_NAME;
 	input_dev->phys = ACPI_PCC_INPUT_PHYS;
@@ -632,27 +772,15 @@ static int acpi_pcc_init_input(struct pcc_acpi *pcc)
 	if (error) {
 		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
 				  "Unable to register input device\n"));
-		goto err_free_keymap;
+		goto err_free_dev;
 	}
 
 	pcc->input_dev = input_dev;
 	return 0;
 
- err_free_keymap:
-	sparse_keymap_free(input_dev);
  err_free_dev:
 	input_free_device(input_dev);
 	return error;
-}
-
-static void acpi_pcc_destroy_input(struct pcc_acpi *pcc)
-{
-	sparse_keymap_free(pcc->input_dev);
-	input_unregister_device(pcc->input_dev);
-	/*
-	 * No need to input_free_device() since core input API refcounts
-	 * and free()s the device.
-	 */
 }
 
 /* kernel module interface */
@@ -672,6 +800,8 @@ static int acpi_pcc_hotkey_resume(struct device *dev)
 	ACPI_DEBUG_PRINT((ACPI_DB_ERROR, "Sticky mode restore: %d\n",
 			  pcc->sticky_mode));
 
+	acpi_pcc_write_sset(pcc, SINF_MUTE, pcc->mute);
+	acpi_pcc_write_sset(pcc, SINF_MUTE, pcc->eco_state);
 	return acpi_pcc_write_sset(pcc, SINF_STICKY_KEY, pcc->sticky_mode);
 }
 #endif
@@ -741,6 +871,8 @@ static int acpi_pcc_hotkey_add(struct acpi_device *device)
 
 	/* read the initial sticky key mode from the hardware */
 	pcc->sticky_mode = pcc->sinf[SINF_STICKY_KEY];
+	pcc->eco_state = pcc->sinf[SINF_ECO_STATE];
+	pcc->mute = pcc->sinf[SINF_MUTE];
 
 	/* add sysfs attributes */
 	result = sysfs_create_group(&device->dev.kobj, &pcc_attr_group);
@@ -757,6 +889,7 @@ static int acpi_pcc_hotkey_add(struct acpi_device *device)
 		}
 		result = device_create_file(&pcc->platform->dev,
 			&dev_attr_cdpower);
+		pcc_register_optd_notifier(pcc, "\\_SB.PCI0.EHCI.ERHB.OPTD");
 		if (result)
 			goto out_platform;
 	} else {
@@ -770,30 +903,13 @@ out_platform:
 out_backlight:
 	backlight_device_unregister(pcc->backlight);
 out_input:
-	acpi_pcc_destroy_input(pcc);
+	input_unregister_device(pcc->input_dev);
 out_sinf:
 	kfree(pcc->sinf);
 out_hotkey:
 	kfree(pcc);
 
 	return result;
-}
-
-static int __init acpi_pcc_init(void)
-{
-	int result = 0;
-
-	if (acpi_disabled)
-		return -ENODEV;
-
-	result = acpi_bus_register_driver(&acpi_pcc_driver);
-	if (result < 0) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				  "Error registering hotkey driver\n"));
-		return -ENODEV;
-	}
-
-	return 0;
 }
 
 static int acpi_pcc_hotkey_remove(struct acpi_device *device)
@@ -807,12 +923,13 @@ static int acpi_pcc_hotkey_remove(struct acpi_device *device)
 		device_remove_file(&pcc->platform->dev, &dev_attr_cdpower);
 		platform_device_unregister(pcc->platform);
 	}
+		pcc_unregister_optd_notifier(pcc, "\\_SB.PCI0.EHCI.ERHB.OPTD");
 
 	sysfs_remove_group(&device->dev.kobj, &pcc_attr_group);
 
 	backlight_device_unregister(pcc->backlight);
 
-	acpi_pcc_destroy_input(pcc);
+	input_unregister_device(pcc->input_dev);
 
 	kfree(pcc->sinf);
 	kfree(pcc);
@@ -820,10 +937,4 @@ static int acpi_pcc_hotkey_remove(struct acpi_device *device)
 	return 0;
 }
 
-static void __exit acpi_pcc_exit(void)
-{
-	acpi_bus_unregister_driver(&acpi_pcc_driver);
-}
-
-module_init(acpi_pcc_init);
-module_exit(acpi_pcc_exit);
+module_acpi_driver(acpi_pcc_driver);
