@@ -77,6 +77,7 @@ CDROM off
 
 CDROM eject  \_SB_.PCI0.LPCB.EC0_._QA5 [1A]
 
+
 Name (SIFR, Package (0x15)
 0x01,       // 0x00 - Battery no
 0x00,       // 0x01 - LCD type
@@ -222,7 +223,6 @@ Save ECWR to
 
 
 
-
 Results of \_SB_.ECPF
 =====================
 
@@ -249,7 +249,7 @@ Results of \_SB_.ECPF
 \_SB.ECPF 0x020A Arg1 Arg2 -> EC10 Arg1 Arg2
 \_SB.ECPF 0x0214 Arg1 Arg2 -> EC19 Arg1 Arg2
 
-\_SB_.ECPF 0x0216
+\_SB_.ECPF 0x0100 0 0  -> EC01		Return power status
 
 \_SB_.ECPF 0x0101 0 0  -> EC02 Arg1          Unknown
   
@@ -268,9 +268,6 @@ EC03 calls \_SB_.PCI0.LPCB.EC0_.EC86 0x6A
 
 EC01 calls \_SB_.PCI0.LPCB.EC0_.EC86 0x08
 
-EC8D 0x6C
-EC8D 0x6E
-EC8D 0x70
 
 
 Battery info query
@@ -341,12 +338,28 @@ EC8B 0x5D 0x81
 
 
 
+HCNV
+Arg0	Local0
+0x0A	0xFFFFFFFF
+0x0B	0x04 (0B - 09)
+0x0C	0x05
+0x0D	0x06
+0x15	0x0C
+
+Between 0x70 and 0x7B, if (Local0 != 0xFFFFFFFF), 
+0x70	0xFFFFFFFF
+0x71	
+
+0x81	0x30
+0x82	0x31
+
+
 
 ACPI event on Let's Note CF-W5 for kernel 4.4.38 
 ================================================
 
-video/brightnessup BRTUP 00000086 00000000 K	// F1 pressed
-video/brightnessup BRTUP 00000086 00000000      // F1 released
+video/brightnessup BRTUP 00000086 00000000 K	// F1
+video/brightnessup BRTUP 00000086 00000000
 video/brightnessdown BRTDN 00000087 00000000	// F2
 video/brightnessdown BRTDN 00000087 00000000 K
 button/mute MUTE 00000080 00000000 K		// F3
@@ -483,4 +496,5 @@ ECO on
 0000400
 
 ECO off
+
 

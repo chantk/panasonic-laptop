@@ -184,7 +184,7 @@ enum SINF_BITS { SINF_NUM_BATTERIES = 0,
 		 SINF_ECO_MODE,
 		 SINF_STICKY_KEY = 0x80,
                  SINF_0X0C,
-                 //SINF_CUR_BRIGHT,
+                 SINF_CUR_BRIGHT,
 	};
 /* R1 handles SINF_AC_CUR_BRIGHT as SINF_CUR_BRIGHT, doesn't know AC state */
 
