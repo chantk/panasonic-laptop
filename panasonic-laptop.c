@@ -139,11 +139,11 @@
 #include <linux/input/sparse-keymap.h>
 #include <linux/platform_device.h>
 
-#ifndef ACPI_HOTKEY_COMPONENT
-#define ACPI_HOTKEY_COMPONENT	0x10000000
-#endif
+/* #ifndef ACPI_HOTKEY_COMPONENT */
+/* #define ACPI_HOTKEY_COMPONENT	0x10000000 */
+/* #endif */
 
-#define _COMPONENT		ACPI_HOTKEY_COMPONENT
+/* #define _COMPONENT		ACPI_HOTKEY_COMPONENT */
 
 MODULE_AUTHOR("Hiroshi Miura, David Bronaugh, Harald Welte, Martin Lucina and Kenneth Chan");
 MODULE_DESCRIPTION("ACPI HotKey driver for Panasonic Let's Note laptops");
@@ -157,7 +157,10 @@ MODULE_LICENSE("GPL");
 #define METHOD_HKEY_SQTY	"SQTY"
 #define METHOD_HKEY_SINF	"SINF"
 #define METHOD_HKEY_SSET	"SSET"
+#define METHOD_ECWR             "\\_SB.ECWR"
 #define HKEY_NOTIFY		 0x80
+#define ECO_MODE_OFF		 0x00
+#define ECO_MODE_ON      	 0x80
 
 #define ACPI_PCC_DRIVER_NAME	"Panasonic Laptop Support"
 #define ACPI_PCC_DEVICE_NAME	"Hotkey"
@@ -166,7 +169,7 @@ MODULE_LICENSE("GPL");
 #define ACPI_PCC_INPUT_PHYS	"panasonic/hkey0"
 
 /* LCD_TYPEs: 0 = Normal, 1 = Semi-transparent
-   ENV_STATEs: Normal temp=0x01, High temp=0x81, N/A=0x00
+   ECO_MODEs: 0x03 = off, 0x83 = on
 */
 enum SINF_BITS { SINF_NUM_BATTERIES = 0,
 		 SINF_LCD_TYPE,
@@ -178,8 +181,10 @@ enum SINF_BITS { SINF_NUM_BATTERIES = 0,
 		 SINF_DC_CUR_BRIGHT,
 		 SINF_MUTE,
 		 SINF_RESERVED,
-		 SINF_ENV_STATE,
+		 SINF_ECO_MODE,
 		 SINF_STICKY_KEY = 0x80,
+                 SINF_0X0C,
+                 //SINF_CUR_BRIGHT,
 	};
 /* R1 handles SINF_AC_CUR_BRIGHT as SINF_CUR_BRIGHT, doesn't know AC state */
 
@@ -232,6 +237,7 @@ struct pcc_acpi {
 	acpi_handle		handle;
 	unsigned long		num_sifr;
 	int			sticky_mode;
+	int			eco_mode;
 	int			mute;
 	u32			*sinf;
 	struct acpi_device	*device;
@@ -271,8 +277,7 @@ static inline int acpi_pcc_get_sqty(struct acpi_device *device)
 	if (ACPI_SUCCESS(status))
 		return s;
 	else {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				  "evaluation error HKEY.SQTY\n"));
+                pr_err("evaluation error HKEY.SQTY\n");
 		return -EINVAL;
 	}
 }
@@ -287,21 +292,19 @@ static int acpi_pcc_retrieve_biosdata(struct pcc_acpi *pcc)
 	status = acpi_evaluate_object(pcc->handle, METHOD_HKEY_SINF, NULL,
 				      &buffer);
 	if (ACPI_FAILURE(status)) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				  "evaluation error HKEY.SINF\n"));
+                pr_err("evaluation error HKEY.SINF\n");
 		return 0;
 	}
 
 	hkey = buffer.pointer;
 	if (!hkey || (hkey->type != ACPI_TYPE_PACKAGE)) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR, "Invalid HKEY.SINF\n"));
+                pr_err("Invalid HKEY.SINF\n");
 		status = AE_ERROR;
 		goto end;
 	}
 
 	if (pcc->num_sifr < hkey->package.count) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				 "SQTY reports bad SINF length\n"));
+                pr_err("SQTY reports bad SINF length\n");
 		status = AE_ERROR;
 		goto end;
 	}
@@ -311,8 +314,7 @@ static int acpi_pcc_retrieve_biosdata(struct pcc_acpi *pcc)
 		if (likely(element->type == ACPI_TYPE_INTEGER)) {
 			pcc->sinf[i] = element->integer.value;
 		} else
-			ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-					 "Invalid HKEY.SINF data\n"));
+                        pr_err("Invalid HKEY.SINF data\n");
 	}
 	pcc->sinf[hkey->package.count] = -1;
 
@@ -360,6 +362,7 @@ static int bl_set_status(struct backlight_device *bd)
 	rc = acpi_pcc_write_sset(pcc, SINF_AC_CUR_BRIGHT, bright);
 	if (rc < 0)
 		return rc;
+	//	return acpi_pcc_write_sset(pcc, SINF_CUR_BRIGHT, bright);
 
 	return acpi_pcc_write_sset(pcc, SINF_DC_CUR_BRIGHT, bright);
 }
@@ -400,8 +403,7 @@ static int get_optd_power_state(void)
 
 	status = acpi_evaluate_integer(NULL, "\\_SB.STAT", NULL, &state);
 	if (ACPI_FAILURE(status)) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				  "evaluation error _SB.STAT\n"));
+                pr_err("evaluation error _SB.STAT\n");
 		result = -EIO;
 		goto out;
 	}
@@ -440,16 +442,14 @@ static int set_optd_power_state(int new_state)
 	        // while CDDI takes 1 arg and we are not quite sure what it is.
 		status = acpi_evaluate_object(NULL, "\\_SB.CDDR", NULL, NULL); 
 		if (ACPI_FAILURE(status)) {
-			ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-					  "evaluation error _SB.CDDR\n"));
+                        pr_err("evaluation error _SB.CDDR\n");
 			result = -EIO;
 		}
 		break;
 	case 1: /* power on */
 		status = acpi_evaluate_object(NULL, "\\_SB.FBAY", NULL, NULL);
 		if (ACPI_FAILURE(status)) {
-			ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-					  "evaluation error _SB.FBAY\n"));
+                        pr_err("evaluation error _SB.FBAY\n");
 			result = -EIO;
 		}
 		break;
@@ -524,11 +524,14 @@ static ssize_t sticky_mode_show(struct device *dev, struct device_attribute *att
 {
 	struct acpi_device *acpi = to_acpi_device(dev);
 	struct pcc_acpi *pcc = acpi_driver_data(acpi);
+        int rc;
 
 	if (!acpi_pcc_retrieve_biosdata(pcc))
 		return -EIO;
-
-	return snprintf(buf, PAGE_SIZE, "%u\n", pcc->sinf[SINF_STICKY_KEY]);
+        
+	rc = snprintf(buf, PAGE_SIZE, "%u\n", pcc->sinf[SINF_STICKY_KEY]);
+        pr_info("sticky_mode_show rc %d\n", rc);
+        return rc;
 }
 
 static ssize_t sticky_mode_store(struct device *dev, struct device_attribute *attr,
@@ -545,6 +548,77 @@ static ssize_t sticky_mode_store(struct device *dev, struct device_attribute *at
 		acpi_pcc_write_sset(pcc, SINF_STICKY_KEY, val);
 		pcc->sticky_mode = val;
 	}
+
+	return count;
+}
+
+static ssize_t eco_mode_show(struct device *dev, struct device_attribute *attr,
+				char *buf)
+{
+	struct acpi_device *acpi = to_acpi_device(dev);
+	struct pcc_acpi *pcc = acpi_driver_data(acpi);
+        int result;
+
+	if (!acpi_pcc_retrieve_biosdata(pcc))
+		return -EIO;
+
+	switch (pcc->sinf[SINF_ECO_MODE]) {
+	case (ECO_MODE_OFF + 3):
+  	        result = 0;
+		break;
+	case (ECO_MODE_ON + 3):
+	        result = 1;
+		break;
+	default:
+	        result = -EIO;
+		break;
+	}
+	return snprintf(buf, PAGE_SIZE, "%u\n", result);
+}
+
+static ssize_t eco_mode_store(struct device *dev, struct device_attribute *attr,
+			  const char *buf, size_t count)
+{
+	struct acpi_device *acpi = to_acpi_device(dev);
+	struct pcc_acpi *pcc = acpi_driver_data(acpi);
+	int err, rc, state;
+
+        union acpi_object param[2];
+        struct acpi_object_list input;
+        acpi_status status;
+
+        param[0].type = ACPI_TYPE_INTEGER;
+        param[0].integer.value = 0x15;
+        param[1].type = ACPI_TYPE_INTEGER;
+        input.count = 2;
+        input.pointer = param;
+        
+	err = kstrtoint(buf, 0, &state);
+	if (err)
+		return err;
+
+	switch (state) {
+	case 0:
+                param[1].integer.value = ECO_MODE_OFF;
+                pcc->sinf[SINF_ECO_MODE] = 0;
+                pcc->eco_mode = 0;
+                break;
+	case 1:
+                param[1].integer.value = ECO_MODE_ON;
+                pcc->sinf[SINF_ECO_MODE] = 1;
+                break;
+	default:
+                /* nothing to do */
+                rc = -EIO;
+                break;
+	}
+
+        status = acpi_evaluate_object(NULL, METHOD_ECWR,
+                                       &input, NULL);
+        if (ACPI_FAILURE(status)) {
+                pr_err("%s evaluation failed\n", METHOD_ECWR);
+                return -EINVAL;
+        }
 
 	return count;
 }
@@ -571,6 +645,7 @@ static DEVICE_ATTR_RO(numbatt);
 static DEVICE_ATTR_RO(lcdtype);
 static DEVICE_ATTR_RW(mute);
 static DEVICE_ATTR_RW(sticky_mode);
+static DEVICE_ATTR_RW(eco_mode);
 static DEVICE_ATTR_RW(cdpower);
 
 static struct attribute *pcc_sysfs_entries[] = {
@@ -578,6 +653,7 @@ static struct attribute *pcc_sysfs_entries[] = {
 	&dev_attr_lcdtype.attr,
 	&dev_attr_mute.attr,
 	&dev_attr_sticky_mode.attr,
+	&dev_attr_eco_mode.attr,
 	&dev_attr_cdpower.attr,
 	NULL,
 };
@@ -600,8 +676,7 @@ static void acpi_pcc_generate_keyinput(struct pcc_acpi *pcc)
 	rc = acpi_evaluate_integer(pcc->handle, METHOD_HKEY_QUERY,
 				   NULL, &result);
 	if (ACPI_FAILURE(rc)) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				 "error getting hotkey status\n"));
+                pr_err("error getting hotkey status\n");
 		return;
 	}
 
@@ -617,8 +692,7 @@ static void acpi_pcc_generate_keyinput(struct pcc_acpi *pcc)
 	if ((result & 0xf) == 0x7 || (result & 0xf) == 0x9 || (result & 0xf) == 0xa) {
  	        if (!sparse_keymap_report_event(hotk_input_dev,
 						result & 0xf, result & 0x80, false))
-		        ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-					  "Unknown hotkey event: %d\n", result));
+                        pr_err("Unknown hotkey event: 0x%llu\n", result);
 	}
 }
 
@@ -698,15 +772,13 @@ static int acpi_pcc_init_input(struct pcc_acpi *pcc)
 
 	error = sparse_keymap_setup(input_dev, panasonic_keymap, NULL);
 	if (error) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				  "Unable to setup input device keymap\n"));
+                pr_err("Unable to setup input device keymap\n");
 		goto err_free_dev;
 	}
 
 	error = input_register_device(input_dev);
 	if (error) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				  "Unable to register input device\n"));
+                pr_err("Unable to register input device\n");
 		goto err_free_dev;
 	}
 
@@ -732,10 +804,12 @@ static int acpi_pcc_hotkey_resume(struct device *dev)
 	if (!pcc)
 		return -EINVAL;
 
-	ACPI_DEBUG_PRINT((ACPI_DB_ERROR, "Sticky mode restore: %d\n",
-			  pcc->sticky_mode));
+        pr_info("Sticky mode restore: %d\n", pcc->sticky_mode);
+	pr_info("ECO mode restore: %d\n", pcc->eco_mode);
+	pr_info("Mute restore: %d\n", pcc->mute);
 
 	acpi_pcc_write_sset(pcc, SINF_MUTE, pcc->mute);
+	acpi_pcc_write_sset(pcc, SINF_ECO_MODE, pcc->eco_mode);
 	return acpi_pcc_write_sset(pcc, SINF_STICKY_KEY, pcc->sticky_mode);
 }
 #endif
@@ -752,14 +826,13 @@ static int acpi_pcc_hotkey_add(struct acpi_device *device)
 	num_sifr = acpi_pcc_get_sqty(device);
 
 	if (num_sifr < 0 || num_sifr > 255) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR, "num_sifr out of range"));
+                pr_err("num_sifr out of range");
 		return -ENODEV;
 	}
 
 	pcc = kzalloc(sizeof(struct pcc_acpi), GFP_KERNEL);
 	if (!pcc) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				  "Couldn't allocate mem for pcc"));
+                pr_err("Couldn't allocate mem for pcc");
 		return -ENOMEM;
 	}
 
@@ -778,14 +851,12 @@ static int acpi_pcc_hotkey_add(struct acpi_device *device)
 
 	result = acpi_pcc_init_input(pcc);
 	if (result) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				  "Error installing keyinput handler\n"));
+                pr_err("Error installing keyinput handler\n");
 		goto out_sinf;
 	}
 
 	if (!acpi_pcc_retrieve_biosdata(pcc)) {
-		ACPI_DEBUG_PRINT((ACPI_DB_ERROR,
-				 "Couldn't retrieve BIOS data\n"));
+                pr_err("Couldn't retrieve BIOS data\n");
 		result = -EIO;
 		goto out_input;
 	}
@@ -805,6 +876,7 @@ static int acpi_pcc_hotkey_add(struct acpi_device *device)
 
 	/* read the initial sticky key mode from the hardware */
 	pcc->sticky_mode = pcc->sinf[SINF_STICKY_KEY];
+	pcc->eco_mode = pcc->sinf[SINF_ECO_MODE];
 	pcc->mute = pcc->sinf[SINF_MUTE];
 
 	/* add sysfs attributes */
