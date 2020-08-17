@@ -1,0 +1,414 @@
+The part of the DSDT we're interested in is SIFR.
+
+Name (SIFR, Package (0x15)
+| Init val | Valid val | Index | Description                  |
+|----------|-----------|-------|------------------------------|
+| 0x01     | 0-1       | 0x00  | Battery no                   |
+| 0x00     | 0,1       | 0x01  | LCD type                     |
+| 0x15     | 0x15      | 0x02  | AC max brightness            |
+| 0x01     | 0x01      | 0x03  | AC min brightness            |
+| 0xFF     | 0x0-0xFF  | 0x04  | AC current brightness        |
+| 0x15     | 0x15      | 0x05  | DC max brightness            |
+| 0x01     | 0x1       | 0x06  | DC min brightness            |
+| 0x7F     | 0x0-0xFF  | 0x07  | DC current brightness        |
+| 0x00     | 0,1       | 0x08  | Mute                         |
+| 0x01     |           | 0x09  | Reserved                     |
+| 0x00     | 0x03,0x83 | 0x0a  | ECO mode. 0x83 on, 0x03 off  |
+| 0xC0     |           | 0x0b  |                              |
+| 0x0B     |           | 0x0c  | 0xB                          |
+| 0xFF     | 0x0-0xFF  | 0x0d  | Current brightness           |
+| 0x00     |           | 0x0e  |                              |
+| 0x00     |           | 0x0f  |                              |
+| 0x00     |           | 0x10  |                              |
+| 0x00     |           | 0x11  |                              |
+| 0x00     |           | 0x12  | 0x3                          |
+| Ones     | 0x1,0x15  | 0x13  | Current brighness. For Vista |
+| 0x05     |           | 0x14  |                              |
+
+
+\_SB.HKEY.SSET 0x80 0x01 
+\_SB.HKEY.SINF [0x0A]  // ECO state: 0x83 = on, 0x03 = off
+
+To get ECO mode:
+\_SB.ECPF (0x215, 0x00, 0x00)  ->  EC1C  -> EC86 (0x15)  -> EC87 (0x13, 0x95)
+
+    # echo "\_SB_.ECPF 0x215 0 0" > /proc/acpi/call ; cat /proc/acpi/call ; echo
+
+
+To get Sticky key:
+ECPF (0x218, 0 0) -> (result << 0x6 | 0x80)
+
+
+In the DSDT, SINF contains 15 entries. They correspond to the SINF_BITS array.
+
+    echo "\_SB.HKEY.SINF" > /proc/acpi/call ; cat /proc/acpi/call ; echo
+
+
+
+Test ACPI methods directly with acpi_call
+--------------------------------------------------
+
+    # cd acpi_call
+    # make ; make modules
+    # modprobe acpi_call
+
+
+To turn on/off DVDROM power
+
+    # echo "\_SB_.CDON" > /proc/acpi/call
+    # echo "\_SB_.CDDR" > /proc/acpi/call
+    # echo "\_SB_.CDDI" > /proc/acpi/call
+    
+To query SIFR,
+
+    # echo "\_SB.HKEY.SINF" > /proc/acpi/call ; cat /proc/acpi/call
+    
+
+Drive ON/OFF switch send notify signal: 
+Dispatching Notify on [OPTD] (Device) Value 0x03 (Eject Request) Node ffff88003c42e988
+
+
+Dumping contents of EC
+----------------------------
+
+Determine the EC cmd/status & data port:
+
+    > cat /proc/ioports | grep EC
+    0062-0062 : EC data
+    0066-0066 : EC cmd
+
+Dump contents of the first EC, do:
+
+    # modprobe ec_sys
+    # od -t x1 /sys/kernel/debug/ec/ec0/io
+    0000000 08 40 00 00 00 41 2e 00 a6 a0 23 a0 23 80 a0 23
+    0000020 23 a0 08 08 00 00 00 00 00 00 00 00 00 00 00 00
+    0000040 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    *
+    0000220 00 00 00 00 00 00 00 00 00 80 00 80 80 80 80 00
+    0000240 00 00 00 00 80 80 00 00 a7 26 86 27 80 80 80 32
+    0000260 80 80 80 80 80 00 80 80 04 00 20 20 00 00 00 00
+    0000300 13 98 01 07 5a 5a 71 81 2e 00 13 98 00 07 5a 5a
+    0000320 71 9f 2c 00 00 00 00 00 00 00 00 9f 00 00 00 00
+    0000340 00 00 00 00 00 9f 00 00 00 00 00 00 00 00 00 00
+    0000360 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    0000400
+
+The EC signals to the kernel via the acpi interrupt and generates GPE 0x1d
+
+
+Set debug\_layer and debug\_level
+
+    # echo 0x00080010 > /sys/module/acpi/parameters/debug_layer
+    # echo 0xa4004606 > /sys/module/acpi/parameters/debug_level
+
+or better
+
+    # echo 0x00000006 > /sys/module/acpi/parameters/debug_level
+
+To enable debugging, compile and run enable\_debug
+
+    > make enable_debug ; ./enable_debug | sh
+
+
+
+CDROM power dev file:
+`/sys/devices/platform/panasonic/cdpower`
+
+CDROM on
+
+    \_SB_.PCI0.LPCB.EC0_._Q84 [1A]
+    \_GPE._L0D
+    \_SB_.PCI0.LPCB.EC0_._QA6
+
+CDROM off
+
+    \_SB_.PCI0.LPCB.EC0_._Q84
+
+CDROM eject
+
+    \_SB_.PCI0.LPCB.EC0_._QA5 [1A]
+
+
+
+
+Dumping DSDT table
+----------------------
+
+    # acpidump > acpidata.dat
+    # acpixtract -sSSDT acpidata.dat
+    # acpixtract -sDSDT acpidata.dat
+    # iasl -d dsdt.dat ssdt*.dat
+
+
+To insert DSDT into ACPI emulator
+-----------------------------------------
+
+    > acpiexec dsdt.aml
+    - execute
+
+
+To list acpi kernel function calls
+------------------------------------------
+
+    > cat /proc/kallsyms | grep acpi
+
+
+
+\_SB.ECWR (EC Write)
+-------------------------
+
+| Arg0 | Arg1 | Description               |
+|------|------|---------------------------|
+| 0x01 |      | Controls power switch LED |
+|      | 0x00 | off                       |
+|      | 0x01 | on                        |
+|      | 0x02 | on                        |
+|      | 0x03 | suspend flashing          |
+|      | 0x04 | off                       |
+| 0x0A | 0x0n | Power off instantly       |
+| 0x15 | 0x00 | ECO mode off              |
+|      | 0x80 | ECO mode on               |
+| 0x0B | 0x00 | Display brightness        |
+|      | 0xFF | Range: 0x00 - 0xFF        |
+| 0x17 |      |                           |
+| 0x3A | 0x00 | RFKill on                 |
+|      | 0x04 | RFKill off                |
+
+
+\_SB_.ECPF
+-------------
+
+| Arg0   | Arg1    | Arg2   | Description          | Result                      |
+|--------|---------|--------|----------------------|-----------------------------|
+| 0x0100 | 0       | 0      | Get power status     | 0x0 = online, 0x1 = offline |
+| 0x0110 | unknown | unkown | Get _BST             |                             |
+| 0x0111 | Arg1    | Arg2   | Get BATA buffer      |                             |
+|        |         |        | -> by _BST & _BTP    |                             |
+| 0x0112 | Arg1    | Arg2   | -> by _BTP           |                             |
+| 0x0205 | Arg1    |        | -> EC0B Arg1         |                             |
+| 0x0206 | Arg1    |        | -> EC0C Arg1         |                             |
+| 0x0207 | Arg1    |        | -> EC0D Arg1, lid    |                             |
+| 0x0208 | Arg     |        | -> EC0E Arg1, hotkey |                             |
+| 0x0209 | Arg1    |        | -> EC0F Arg1, hotkey |                             |
+| 0x020A | Arg1    | Arg2   | -> EC10 Arg1 Arg2    |                             |
+| 0x0214 | Arg1    | Arg2   | -> EC19 Arg1 Arg2    |                             |
+| 0x0215 | 0x0     | 0x0    | Get ECO mode         |                             |
+| 0x0218 | 0x0     | 0x0    | Get sticky key       |                             |
+
+
+\_SB.HKEY.SSET
+-----------------
+
+| Arg0 | Arg1     | Description               |
+|------|----------|---------------------------|
+| 0x04 | 0x0-0x15 | Set AC current brightness |
+| 0x07 | 0x0-0x15 | Set DC current brightness |
+| 0x08 | 0,1      | Set mute                  |
+| 0x80 | 0,1      | Hotkey                    |
+| 0x0D | 0x0-0xff | Current brightness        |
+
+
+
+
+
+\_PTS
+------
+
+    \_SB.PCI0.LPCB.EC0._Q0A
+    \_SB.PCI0.LPCB.EC0._Q0B
+    \_SB.PCI0.LPCB.EC0._Q0C
+    \_SB.PCI0.LPCB.EC0._Q0D
+    \_SB.PCI0.LPCB.EC0._Q0E
+    \_SB.PCI0.LPCB.EC0._Q0F
+    \_SB.PCI0.LPCB.EC0._Q10
+    \_SB.PCI0.LPCB.EC0._Q11
+    \_SB.PCI0.LPCB.EC0._Q12
+    \_SB.PCI0.LPCB.EC0._Q13
+    \_SB.PCI0.LPCB.EC0._Q14
+    \_SB.PCI0.LPCB.EC0._Q15
+    \_SB.PCI0.LPCB.EC0._Q23
+    \_SB.PCI0.LPCB.EC0._Q70
+    \_SB.PCI0.LPCB.EC0._Q71
+    \_SB.PCI0.LPCB.EC0._Q72
+    \_SB.PCI0.LPCB.EC0._Q73
+    \_SB.PCI0.LPCB.EC0._Q74
+    \_SB.PCI0.LPCB.EC0._Q75
+    \_SB.PCI0.LPCB.EC0._Q76
+    \_SB.PCI0.LPCB.EC0._Q77
+    \_SB.PCI0.LPCB.EC0._Q78
+    \_SB.PCI0.LPCB.EC0._Q79
+    \_SB.PCI0.LPCB.EC0._Q80
+    \_SB.PCI0.LPCB.EC0._Q81
+    \_SB.PCI0.LPCB.EC0._Q82
+    \_SB.PCI0.LPCB.EC0._Q83
+    \_SB.PCI0.LPCB.EC0._Q84
+    \_SB.PCI0.LPCB.EC0._Q7A
+    \_SB.PCI0.LPCB.EC0._Q7B
+    \_SB.PCI0.LPCB.EC0._QA0
+    \_SB.PCI0.LPCB.EC0._QA3
+    \_SB.PCI0.LPCB.EC0._QA5
+    \_SB.PCI0.LPCB.EC0._QA7
+    \_SB.PCI0.LPCB.EC0._QA8
+    \_SB.PCI0.LPCB.EC0._Q5C
+    \_SB.PCI0.LPCB.EC0._Q9F
+    \_SB.PCI0.LPCB.EC0.INI2
+    \_SB.PCI0.LPCB.EC0.EC8D  0x22262e0 01 Args 1 Len 00A6 Aml 0x2210cbd
+    \_SB.PCI0.LPCB.EC0.EC03  0x22263c0 01 Args 2 Len 009E Aml 0x2210d6b
+    \_SB.PCI0.LPCB.EC0.ECGE
+
+
+
+Battery info query
+-----------------------
+
+    \_SB.BATA._BIF
+    eco on  [0x0, 0xed1c, 0xcb02, 0x1, 0x299a, 0x1554, 0x2d0, 0xa, 0xa, "CF-VZSU47", "00699", "LION", "Panasonic"] 
+    eco off [0x0, 0xed1c, 0xed1c, 0x1, 0x299a, 0x1554, 0x2d0, 0xa, 0xa, "CF-VZSU47", "00699", "LION", "Panasonic"]
+
+    \_SB.ECPF 0x0111 Arg1 Arg2 -> EC04 Arg1 Arg2      // called by _BST & _BTP
+    \_SB.ECPF 0x0112 Arg1 Arg2 -> EC05 Arg1 Arg2      // called by _BTP
+    \_SB.PCI0.LPCB.EC0.EC04, Arg0, Arg1 (BIFR index)
+    \_SD.PCI0.LPCB.EC0.EC04 0x00 0x02 -> EC85 (0x64)  // last full capacity
+
+    \_SB.PCI0.LPCB.EC0._REG Args 2
+    \_SB.PCI0.LPCB.EC0.HCNV Args 1
+    \_SB.PCI0.LPCB.EC0.EC8D
+    0x6C = 0x0
+    0x6E = 0x103e
+    0x70 = 0x2e80
+
+    \_SB.PCI0.LPCB.EC0.EC0B Args 1
+    \_SB.PCI0.LPCB.EC0.EC02 Args 1          // calls EC86
+    \_SB.PCI0.LPCB.EC0.EC05 Args 2          // calls EC82 
+    \_SB.PCI0.LPCB.EC0.EC0C Args 1          // set sleep timer
+    \_SB.PCI0.LPCB.EC0.EC0D Args 1          // call EC8B
+    \_SB.PCI0.LPCB.EC0.EC0E Args 1          //
+    \_SB.PCI0.LPCB.EC0.EC0F (0x01|0x00)     // call EC83 0x17 (0x01|0x00)
+    \_SB.PCI0.LPCB.EC0.EC10 Args 2
+    \_SB.PCI0.LPCB.EC0.EC20 Args 2
+    \_SB.PCI0.LPCB.EC0.EC19 Args 2
+    \_SB.PCI0.LPCB.EC0.EC1A Args 2
+    \_SB.PCI0.LPCB.EC0.EC82 0x41 0x00 or 0xF0 Arg1
+    \_SB.PCI0.LPCB.EC0.EC83 Args 2          // 0x0B brightness, 0x17 brightness
+    0x0B Arg1
+    0x17 Arg1
+
+    \_SB.PCI0.LPCB.EC0.EC89 Args 2                          // calls EC87
+    \_SB.PCI0.LPCB.EC0.EC84 (0x8C 0x0C | 0x9C 0x08)         // return EBUF
+
+
+    \_SB.PCI0.LPCB.EC0.EC85 (0x60|62|64|68|72|74|76|78|9A)  // query BIFR
+    calls EC86 (Arg0 + 1), i.e. EC86 0x65
+
+    \_SB.PCI0.LPCB.EC0.EC8F Args 2
+    \_SB.PCI0.LPCB.EC0.EC87 Args 2                          // called by EC89
+    EC87 0x04 0xC5 = 0x5a
+    EC87 0x04 0xC6 = 0x71
+    EC87 0x04 0xC8 = 0x2d
+
+    \_SB.PCI0.LPCB.EC0.EC8E 0x35                            // sticky key related
+    \_SB.PCI0.LPCB.EC0.EC1E Args 2
+    \_SB.PCI0.LPCB.EC0.EC88 Args 1
+    \_SB.PCI0.LPCB.EC0.EC8C Args 2                          // returns BUF
+
+
+
+ACPI event on Let's Note CF-W5
+-------------------------------------
+
+| video/brightnessup   | BRTUP       | 00000086 | 00000000 | F1 pressed         |
+| video/brightnessup   | BRTUP       | 00000086 | 00000000 | F1 released        |
+| video/brightnessdown | BRTDN       | 00000087 | 00000000 | F2                 |
+| video/brightnessdown | BRTDN       | 00000087 | 00000000 |                    |
+| button/mute          | MUTE        | 00000080 | 00000000 | F3                 |
+| button/mute          | MUTE        | 00000080 | 00000000 |                    |
+| button/volumedown    | VOLDN       | 00000080 | 00000000 | F5                 |
+| button/volumedown    | VOLDN       | 00000080 | 00000000 |                    |
+| button/volumeup      | VOLUP       | 00000080 | 00000000 | F6                 |
+| button/volumeup      | VOLUP       | 00000080 | 00000000 |                    |
+| button/sleep         | SBTN        | 00000080 | 00000000 | F7                 |
+| button/battery       | BAT         | 00000080 | 00000000 | F9                 |
+| button/suspend       | SUSP        | 00000080 | 00000000 | F10                |
+| button/power         | PBTN        | 00000080 | 00000000 | power btn pressed  |
+| button/power         | LNXPWRBN:00 | 00000080 | 00000002 | power btn released |
+| ac\_adapter          | ACPI0003:00 | 00000080 | 00000001 | connect AC         |
+| ac\_adapter          | ACPI0003:00 | 00000080 | 00000000 | disconnect AC      |
+|                      |             |          |          |                    |
+
+
+
+Brightness info
+---------------
+
+The Linux kernel has already had a brightness interface. It has a range of 0x1
+- 0x15. Let's call it brightness level. On the other hand, the Panasonic firmware
+has registers for saving AC and DC brightness (persistent across reboots), and one
+for current brightness. Let's call them brightness values. They have a range of
+0x0 - 0xFF. The module needs to map from brightness level to brightness value and
+vice versa.
+
+
+        > for i in `seq 1 21`; do
+            j=`echo "scale=4 ; 8 + (255 - 8) / 20 * ($i - 1)" | bc`
+            k=`echo "($i - 1) * 5" | bc`
+            printf "| %3d | %3d %% | 0x%02X | %5.1f | 0x%02X |\n" $i $k $i $j $j
+        done
+
+        |   1 |   0 % | 0x01 |   8.0 | 0x08 |
+        |   2 |   5 % | 0x02 |  20.4 | 0x14 |
+        |   3 |  10 % | 0x03 |  32.7 | 0x20 |
+        |   4 |  15 % | 0x04 |  45.0 | 0x2D |
+        |   5 |  20 % | 0x05 |  57.4 | 0x39 |
+        |   6 |  25 % | 0x06 |  69.8 | 0x45 |
+        |   7 |  30 % | 0x07 |  82.1 | 0x52 |
+        |   8 |  35 % | 0x08 |  94.5 | 0x5E |
+        |   9 |  40 % | 0x09 | 106.8 | 0x6A |
+        |  10 |  45 % | 0x0A | 119.2 | 0x77 |
+        |  11 |  50 % | 0x0B | 131.5 | 0x83 |
+        |  12 |  55 % | 0x0C | 143.8 | 0x8F |
+        |  13 |  60 % | 0x0D | 156.2 | 0x9C |
+        |  14 |  65 % | 0x0E | 168.6 | 0xA8 |
+        |  15 |  70 % | 0x0F | 180.9 | 0xB4 |
+        |  16 |  75 % | 0x10 | 193.2 | 0xC1 |
+        |  17 |  80 % | 0x11 | 205.6 | 0xCD |
+        |  18 |  85 % | 0x12 | 217.9 | 0xD9 |
+        |  19 |  90 % | 0x13 | 230.3 | 0xE6 |
+        |  20 |  95 % | 0x14 | 242.7 | 0xF2 |
+        |  21 | 100 % | 0x15 | 255.0 | 0xFF |
+
+
+
+        > cd /sys/devices/LNXSYSTM:00/LNXSYBUS:00/MAT0019:00
+        > for f in ac_brightness dc_brightness current_brightness brightness_level \
+	      reserved eco_mode sticky_mode sinf_0x0c ; do 
+            printf "%20s : 0x%02x\n" $f `cat $f`
+        done
+
+               ac_brightness : 0x11
+               dc_brightness : 0x05
+          current_brightness : 0x6e
+            brightness_level : 0x09
+                    reserved : 0x01
+                    eco_mode : 0x01
+                 sticky_mode : 0xc0
+                   sinf_0x0c : 0x0b
+
+
+> find /sys -name \*brightness\* -exec printf "%-100s : " {} \; -exec cat {} \; | grep -v lock | grep -v led
+/sys/devices/pci0000:00/0000:00:02.0/backlight/acpi_video0/actual_brightness                         : 20
+/sys/devices/pci0000:00/0000:00:02.0/backlight/acpi_video0/brightness                                : 20
+/sys/devices/pci0000:00/0000:00:02.0/backlight/acpi_video0/max_brightness                            : 20
+/sys/devices/pci0000:00/0000:00:02.0/drm/card0/card0-LVDS-1/intel_backlight/actual_brightness        : 1575000
+/sys/devices/pci0000:00/0000:00:02.0/drm/card0/card0-LVDS-1/intel_backlight/brightness               : 1575000
+/sys/devices/pci0000:00/0000:00:02.0/drm/card0/card0-LVDS-1/intel_backlight/max_brightness           : 6375000
+/sys/devices/virtual/backlight/panasonic/actual_brightness                                           : 17
+/sys/devices/virtual/backlight/panasonic/brightness                                                  : 17
+/sys/devices/virtual/backlight/panasonic/max_brightness                                              : 21
+/sys/devices/LNXSYSTM:00/LNXSYBUS:00/MAT0019:00/ac_brightness                                        : 17
+/sys/devices/LNXSYSTM:00/LNXSYBUS:00/MAT0019:00/dc_brightness                                        : 5
+/sys/devices/LNXSYSTM:00/LNXSYBUS:00/MAT0019:00/brightness_level                                     : 17
+/sys/devices/LNXSYSTM:00/LNXSYBUS:00/MAT0019:00/current_brightness                                   : 217
+/sys/module/video/parameters/hw_changes_brightness                                                   : -1
+/sys/module/i915/parameters/invert_brightness                                                        : 0
+
