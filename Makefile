@@ -31,7 +31,7 @@ clean:
 	rm -f *~ diff/*~ *.orig diff/*.orig *.rej diff/*.rej
 	rm -fr .tmp_versions Modules.symvers
 
-load: unload modules
+load:
 	@( [ `id -u` == 0 ] || { echo "Must be root to load modules"; exit 1; } )
 	modprobe panasonic_laptop
 	@echo -e '\nRecent dmesg output:' ; dmesg | tail -10
@@ -47,6 +47,8 @@ install: modules
 	rm -f $(MOD_DIR)/extra/panasonic-laptop.ko
 	install -m 0644 $(PWD)/panasonic-laptop.ko $(MOD_DIR)/$(PCC_DIR)
 	depmod -a
+
+reload: unload install load
 
 
 #####################################################################
@@ -71,7 +73,7 @@ install: modules
 #	if [ "$(BASE_IN_PATCH)" == 1 ]; then \
 #		cp $(PWD)/panasonic-laptop.c $(NEW)/$(PCC_DIR)/panasonic-laptop.c &&\
 #		cp $(PWD)/panasonic-laptop.h $(NEW)/$(IDIR)/panasonic-laptop.h &&\
-#		perl -i -pe 'print `cat $(PWD)/diff/Kconfig-panasonic-laptop.add` if m/^(endmenu|endif # MISC_DEVICES)$$/' $(NEW)/$(PCC_DIR)/Kconfig &&\
+p#		perl -i -pe 'print `cat $(PWD)/diff/Kconfig-panasonic-laptop.add` if m/^(endmenu|endif # MISC_DEVICES)$$/' $(NEW)/$(PCC_DIR)/Kconfig &&\
 #		sed -i -e '$$aobj-$$(CONFIG_THINKPAD_EC)       += panasonic-laptop.o' $(NEW)/$(PCC_DIR)/Makefile \
 #	; fi &&\
 #	\
